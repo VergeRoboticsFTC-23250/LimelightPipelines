@@ -7,42 +7,36 @@ def runPipeline(image, llrobot):
         [0, 1223.398, 502.549],
         [0, 0, 1]], dtype=np.float32)
     
-
     dist_coeffs = np.array([.177168, -0.457341, 0.000360, 0.002753, 0.178259], dtype=np.float32)
 
+    # 1. Undistort
     undistort = cv2.undistort(image, camera_matrix, dist_coeffs)
-    
-    # Convert image to HSV
+
+    # 2. Sobel filter
+    gray = cv2.cvtColor(undistort, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    sobelx = cv2.Sobel(blur, cv2.CV_64F, 1, 0, ksize=3)
+    sobely = cv2.Sobel(blur, cv2.CV_64F, 0, 1, ksize=3)
+    abs_sobelx = cv2.convertScaleAbs(sobelx)
+    abs_sobely = cv2.convertScaleAbs(sobely)
+    sobel = cv2.addWeighted(abs_sobelx, 0.5, abs_sobely, 0.5, 0)
+    sobel_bgr = cv2.cvtColor(sobel, cv2.COLOR_GRAY2BGR)
+
+    # 3. HSV threshold
     img_hsv = cv2.cvtColor(undistort, cv2.COLOR_BGR2HSV)
+    img_threshold = cv2.inRange(img_hsv, (5, 170, 65), (26, 255, 255))
 
-    # Color threshold using your ranges
-    img_threshold = cv2.inRange(img_hsv, (2, 220, 57), (25, 255, 190))
+    # 4. Morphology
+    kernel = np.ones((5, 5), np.uint8)
+    img_threshold = cv2.morphologyEx(img_threshold, cv2.MORPH_OPEN, kernel)
+    img_threshold = cv2.morphologyEx(img_threshold, cv2.MORPH_CLOSE, kernel)
+    threshold_bgr = cv2.cvtColor(img_threshold, cv2.COLOR_GRAY2BGR)
 
-    # Find contours on the thresholded mask
-    contours, _ = cv2.findContours(img_threshold, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Pick what you want to see
+    debug_view = sobel_bgr  # or threshold_bgr, or undistort
 
+    # No contours found/returned
     largestContour = np.array([[]])
     llpython = [0,0,0,0,0,0,0,0]
 
-    # Frame area
-    frame_area = image.shape[0] * image.shape[1]
-
-    # Filter contours by area using pixel min and percentage max
-    MIN_AREA = 500
-    MAX_AREA_PERCENT = 0.2  # e.g., max 50% of frame area
-    max_area_pixels = frame_area * MAX_AREA_PERCENT
-
-    contours = [c for c in contours if MIN_AREA <= cv2.contourArea(c) <= max_area_pixels]
-
-    if contours:
-        # Pick largest contour
-        largestContour = max(contours, key=cv2.contourArea)
-
-        # Draw largest contour and bounding box
-        cv2.drawContours(image, [largestContour], -1, (255, 0, 0), 2)
-        x, y, w, h = cv2.boundingRect(largestContour)
-        cv2.rectangle(image, (x, y), (x+w, y+h), (0, 255, 255), 2)
-
-        llpython = [1, x, y, w, h, 9, 8, 7]
-
-    return largestContour, image, llpython
+    return largestContour, sobel, llpython
